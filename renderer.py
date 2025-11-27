@@ -10,6 +10,20 @@ from utils import download_url, safe_filename
 def _run(cmd: List[str], cwd=None):
     proc = subprocess.run(cmd, cwd=cwd, check=True)
 
+def _ffmpeg_safe_path(p: str) -> str:
+    """
+    Return a path suitable for ffmpeg concat demuxer on Windows and POSIX:
+    - Use absolute path
+    - Convert backslashes to forward slashes (ffmpeg accepts forward slashes on Windows)
+    - Escape single quotes by backslash so the path can be wrapped in single quotes safely.
+    """
+    ap = os.path.abspath(p)
+    # convert backslashes to forward slashes so ffmpeg doesn't treat them as escapes
+    ap = ap.replace("\\", "/")
+    # escape single quotes for safety
+    ap = ap.replace("'", "\\'")
+    return ap
+
 def render_project(config: Dict, out_path: str, progress_callback: Callable[[str], None] = None):
     """
     Render a project configuration into out_path.
@@ -68,7 +82,9 @@ def render_project(config: Dict, out_path: str, progress_callback: Callable[[str
             cur = src
             if config.get("reverse"):
                 progress_callback(f"Reversing clip {idx+1}/{len(sources)}...")
-                rev = os.path.join(tmp_root, f"rev_{idx}_{safe_filename(os.path.basename(src))}.mp4")
+                # avoid double-appending extension: remove existing extension before adding .mp4
+                base_name = safe_filename(os.path.splitext(os.path.basename(src))[0])
+                rev = os.path.join(tmp_root, f"rev_{idx}_{base_name}.mp4")
                 # reverse video and audio
                 cmd = [
                     "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
@@ -87,23 +103,18 @@ def render_project(config: Dict, out_path: str, progress_callback: Callable[[str
         filelist = os.path.join(tmp_root, "files.txt")
         with open(filelist, "w", encoding="utf-8") as fh:
             for p in processed:
-                # Use double-quoted filenames in the concat file and escape any double quotes in the path.
-                escaped = p.replace('"', '\\"')
-                fh.write('file "{}"\n'.format(escaped))
+                safep = _ffmpeg_safe_path(p)
+                # Use single-quoted path per ffmpeg concat demuxer; forward slashes avoid Windows backslash issues.
+                fh.write("file '{}'\n".format(safep))
 
         # Build filter_complex if overlay or earrape requested
-        filters = []
         afilters = []
 
         if config.get("earrape"):
             # raise audio volume significantly (user beware)
             afilters.append("volume=6")
 
-        vf_extra = ""
         if config.get("overlay"):
-            # add a simple color tint overlay using color source and blend
-            # We'll add that as a -filter_complex applied after concat by using overlay on the merged stream.
-            # For simplicity, we encode the concatenated video and then overlay by running ffmpeg again.
             progress_callback("Will apply overlay after concat step.")
 
         progress_callback("Concatenating and encoding final output...")
