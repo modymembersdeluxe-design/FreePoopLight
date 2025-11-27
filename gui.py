@@ -12,8 +12,8 @@ from utils import download_url
 class FreePoopApp:
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.build_ui()
 
+        # initialize state BEFORE building the UI so widgets can reference these variables
         # internal categorized sources
         self.videos = []       # video files
         self.overlays = []     # overlay images / video
@@ -24,6 +24,9 @@ class FreePoopApp:
         # other state
         self.registered_urls = []
         self.clip_count = tk.IntVar(value=6)
+
+        # now build the UI
+        self.build_ui()
 
     def build_ui(self):
         self.root.title("FreePoop Light — Super Deluxe")
